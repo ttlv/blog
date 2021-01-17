@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" >
+
+<title>Golang的Map并发性能以及原理分析 | Gopher From Ghetto</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+
+<link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.2/css/all.css" integrity="sha384-fnmOCqbTlWIlj8LyTjo7mOUStjsKC4pOpQbqyi7RrhN7udi9RwhKkMHpvLbHG9Sr" crossorigin="anonymous">
+<link rel="shortcut icon" href="https://ttlv.github.io/blog/favicon.ico?v=1610894814418">
+<link rel="stylesheet" href="https://ttlv.github.io/blog/styles/main.css">
+
+
+  
+    <link rel="stylesheet" href="https://unpkg.com/gitalk/dist/gitalk.css" />
+  
+
+  
+
+
+<link rel="stylesheet" href="https://unpkg.com/aos@next/dist/aos.css" />
+<script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+
+
+
+    <meta name="description" content="1. golang map数据类型的问题
+在Go 1.6之前， 内置的map类型是部分goroutine安全的，并发的读没有问题，并发的写可能有问题。自go 1.6之后， 并发地读写map会报错，这在一些知名的开源库中都存在这个问题，所以g..." />
+    <meta name="keywords" content="" />
+  </head>
+  <body>
+    <div id="app" class="main">
+
+      <div class="sidebar" :class="{ 'full-height': menuVisible }">
+  <div class="top-container" data-aos="fade-right">
+    <div class="top-header-container">
+      <a class="site-title-container" href="https://ttlv.github.io/blog">
+        <img src="https://ttlv.github.io/blog/images/avatar.png?v=1610894814418" class="site-logo">
+        <h1 class="site-title">Gopher From Ghetto</h1>
+      </a>
+      <div class="menu-btn" @click="menuVisible = !menuVisible">
+        <div class="line"></div>
+      </div>
+    </div>
+    <div>
+      
+        
+          <a href="https://ttlv.github.io/blog" class="site-nav">
+            首页
+          </a>
+        
+      
+        
+          <a href="https://ttlv.github.io/blog/archives" class="site-nav">
+            归档
+          </a>
+        
+      
+        
+          <a href="https://ttlv.github.io/blog/tags" class="site-nav">
+            标签
+          </a>
+        
+      
+        
+          <a href="https://ttlv.github.io/blog/post/about" class="site-nav">
+            关于
+          </a>
+        
+      
+    </div>
+  </div>
+  <div class="bottom-container" data-aos="flip-up" data-aos-offset="0">
+    <div class="social-container">
+      
+        
+          <a class="social-link" href="https://github.com/ttlv/" target="_blank">
+            <i class="fab fa-github"></i>
+          </a>
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    </div>
+    <div class="site-description">
+      stay hungry,stay foolish
+    </div>
+    <div class="site-footer">
+      Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a> | <a class="rss" href="https://ttlv.github.io/blog/atom.xml" target="_blank">RSS</a>
+    </div>
+  </div>
+</div>
+
+
+      <div class="main-container">
+        <div class="content-container" data-aos="fade-up">
+          <div class="post-detail">
+            <h2 class="post-title">Golang的Map并发性能以及原理分析</h2>
+            <div class="post-date">2021-01-17</div>
+            
+              <div class="feature-container" style="background-image: url('https://images-1253546493.cos.ap-shanghai.myqcloud.com/golang_1.jpg')">
+              </div>
+            
+            <div class="post-content" v-pre>
+              <h2 id="1-golang-map数据类型的问题">1. golang map数据类型的问题</h2>
+<p>在Go 1.6之前， 内置的map类型是部分goroutine安全的，并发的读没有问题，并发的写可能有问题。自go 1.6之后， 并发地读写map会报错，这在一些知名的开源库中都存在这个问题，所以go 1.9之前的解决方案是额外绑定一个锁，封装成一个新的struct或者单独使用锁都可以。</p>
+<h2 id="2-map如何导致出现并发问题">2. map如何导致出现并发问题</h2>
+<p>golang官方的faq已经提到build-in的map不是线程(goroutine)安全的。</p>
+<p>现在就基于这个场景，构建出一段示例代码</p>
+<pre><code class="language-go">package main
+func main() {
+	m := make(map[int]int)
+	go func() {
+		for {
+			_ = m[1]
+		}
+	}()
+	go func() {
+		for {
+			m[2] = 2
+		}
+	}()
+	select {}
+}
+</code></pre>
+<p>上述这段的代码的意思也很好理解，俩goroutine，第一个goroutine负责不停的读取m这个map对象，而第二个goroutine在不停地往m这个map对象中不停的写入同一个数据。最后我们来运行一下这段代码看一下结果</p>
+<pre><code class="language-shell">go run main.go
+fatal error: concurrent map read and map write
+</code></pre>
+<p>结果也是我们意料之中的事情，golang的build-in的map并不支持并发的读写操作。基于为什么会这样，这就和go的源码有关了，原因在于，在read的时候回去检查<strong>hashWriting</strong>标志，如果存在这个标志，就会出现并发错误。</p>
+<p><a href="https://github.com/golang/go/blob/36f30ba289e31df033d100b2adb4eaf557f05a34/src/runtime/map_fast.go">源码URL跳转链接</a></p>
+<p>设置完之后又会取消<strong>hashWriting</strong>这个标识。源码中会检查是不是有并发的写，删除键的时候，遍历的时候并发读写的问题。map的并发问题不是那么容易被发现，可以利用-race来检查。</p>
+<h2 id="3-go-19之前的解决方案">3. Go 1.9之前的解决方案</h2>
+<p>很多时候我们会并发的使用mao对象，尤其是在一定的规模项目中，map总会保存goroutine共享的数据。go官方在那个时候给出了一个简单的解决方案。大家也肯定和官方想的一样，就是加锁。</p>
+<pre><code class="language-go">var counter = struct{
+    sync.RWMutex
+    m map[string]int
+}{m: make(map[string]int)}
+</code></pre>
+<p>设置一个struct，嵌入一个读写锁和一个map。</p>
+<p>在读数据的时候加锁</p>
+<pre><code class="language-go">counter.RLock()
+n := counter.m[&quot;some_key&quot;]
+counter.RUnlock()
+fmt.Println(&quot;some_key:&quot;, n)
+</code></pre>
+<p>写入的时候也加锁</p>
+<pre><code class="language-go">counter.Lock()
+counter.m[&quot;some_key&quot;]++
+counter.Unlock()
+</code></pre>
+<h2 id="4-现有的map并发安全的解决方案以及问题">4. 现有的map并发安全的解决方案以及问题</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align:center">实现方式</th>
+<th style="text-align:center"><strong>原理</strong></th>
+<th style="text-align:center">适用场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:center">map+Mutex</td>
+<td style="text-align:center">通过Mutex互斥锁来实现多个goroutine对map的串行化访问</td>
+<td style="text-align:center">读写都需要通过Mutex加锁和释放锁，适用于读写比接近的场景</td>
+</tr>
+<tr>
+<td style="text-align:center">map+RWMutex</td>
+<td style="text-align:center">通过RWMutex来实现对map的读写进行读写锁分离加锁，从而实现读的并发性能提高</td>
+<td style="text-align:center">同Mutex相比适用于读多写少的场景</td>
+</tr>
+<tr>
+<td style="text-align:center">sync.Map</td>
+<td style="text-align:center">底层通分离读写map和原子指令来实现读的近似无锁，并通过延迟更新的方式来保证读的无锁化</td>
+<td style="text-align:center">读多修改少，元素增加删除频率不高的情况，在大多数情况下替代上述两种实现</td>
+</tr>
+</tbody>
+</table>
+<h3 id="map的容量问题">map的容量问题</h3>
+<figure data-type="image" tabindex="1"><img src="https://img2018.cnblogs.com/blog/1506724/201912/1506724-20191230011542055-246465627.png" alt="image.png" loading="lazy"></figure>
+<p>在Mutex和RWMutex实现的并发安全的map中map随着时间和元素数量的增加、删除，容量会不断的递增，在某些情况下比如在某个时间点频繁的进行大量数据的增加，然后又大量的删除，其map的容量并不会随着元素的删除而缩小，而在sync.Map中，当进行元素从dirty进行提升到read map的时候会进行重建，可能会缩容</p>
+<h2 id="5-sync-map">5. sync map</h2>
+<h3 id="1-无锁读与读写分离">1. 无锁读与读写分离</h3>
+<figure data-type="image" tabindex="2"><img src="https://img2018.cnblogs.com/blog/1506724/201912/1506724-20191230011542279-1556421363.png" alt="image.png" loading="lazy"></figure>
+<h4 id="1-读写分离">1. 读写分离</h4>
+<p>并发访问map读的主要问题其实是在扩容的时候，可能会导致元素被hash到其他的地址，那如果我的读的map不会进行扩容操作，就可以进行并发安全的访问了，而sync.map里面正是采用了这种方式，对增加元素通过dirty来进行保存</p>
+<h4 id="2-无锁读">2. 无锁读</h4>
+<p>通过read只读和dirty写map将操作分离，其实就只需要通过原子指令对read map来进行读操作而不需要加锁了，从而提高读的性能</p>
+<h4 id="3-写加锁与延迟提升">3. 写加锁与延迟提升</h4>
+<figure data-type="image" tabindex="3"><img src="https://img2018.cnblogs.com/blog/1506724/201912/1506724-20191230011542456-2036975558.png" alt="image.png" loading="lazy"></figure>
+<h5 id="1-写加锁">1. 写加锁</h5>
+<p>上面提到增加元素操作可能会先增加到dirty写map中，那针对多个goroutine同时写，其实就需要进行Mutex加锁了</p>
+<h5 id="2-延迟提升">2. 延迟提升</h5>
+<p>上面提到了read只读map和dirty写map, 那就会有个问题，默认增加元素都放在dirty中，那后续访问新的元素如果都通过 mutex加锁，那read只读map就失去意义，sync.Map中采用一直延迟提升的策略，进行批量将当前map中的所有元素都提升到read只读map中从而为后续的读访问提供无锁支持</p>
+<h3 id="2-指针与惰性删除">2. 指针与惰性删除</h3>
+<figure data-type="image" tabindex="4"><img src="https://img2018.cnblogs.com/blog/1506724/201912/1506724-20191230011542614-1139785696.png" alt="image.png" loading="lazy"></figure>
+<h4 id="1-map里面的指针">1. map里面的指针</h4>
+<p>map里面存储数据都会涉及到一个问题就是存储值还是指针，存储值可以让 map作为一个大的的对象，减轻垃圾回收的压力(避免扫描所有小对象)，而存储指针可以减少内存利用，而sync.Map中其实采用了指针结合惰性删除的方式，来进行 map的value的存储</p>
+<h4 id="2-惰性删除">2. 惰性删除</h4>
+<p>惰性删除是并发设计中一中常见的设计，比如删除某个个链表元素，如果要删除则需要修改前后元素的指针，而采用惰性删除，则通常只需要给某个标志位设定为删除，然后在后续修改中再进行操作，sync.Map中也采用这种方式，通过给指针指向某个标识删除的指针，从而实现惰性删除</p>
+<h3 id="3-syncmap的特点">3.  sync.map的特点</h3>
+<ul>
+<li>空间换时间，通过冗余的两个数据结构（read，dirty）实现加锁对性能的影响。</li>
+<li>使用只读锁，避免读写冲突。</li>
+<li>动态调整，miss次数多了之后，将dirty数据提升为read。</li>
+<li>double-checking。</li>
+<li>延迟删除。删除一个key值只是打标记，只有在提升dirty的时候才清理的数据。</li>
+<li>有限从read中读取，更新，删除，因为对read的读取都不需要锁。</li>
+</ul>
+<h3 id="4-源代码解析">4. 源代码解析</h3>
+<figure data-type="image" tabindex="5"><img src="https://img-blog.csdn.net/20171216105435854?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvamlhbmt1bmtpbmc=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast" alt="这里写图片描述" loading="lazy"></figure>
+<h4 id="1-map">1. Map</h4>
+<pre><code class="language-go">type Map struct {
+	// 当涉及到dirty数据的操作的时候，需要使用这个锁
+	mu Mutex
+	// 一个只读的数据结构，因为只读，所以不会有读写冲突。
+	// 所以从这个数据中读取总是安全的。
+	// 实际上，实际也会更新这个数据的entries,如果entry是未删除的(unexpunged), 并不需要加锁。如果entry已经被删除了，需要加锁，以便更新dirty数据。
+	read atomic.Value // readOnly
+	// dirty数据包含当前的map包含的entries,它包含最新的entries(包括read中未删除的数据,虽有冗余，但是提升dirty字段为read的时候非常快，不用一个一个的复制，而是直接将这个数据结构作为read字段的一部分),有些数据还可能没有移动到read字段中。
+	// 对于dirty的操作需要加锁，因为对它的操作可能会有读写竞争。
+	// 当dirty为空的时候， 比如初始化或者刚提升完，下一次的写操作会复制read字段中未删除的数据到这个数据中。
+	dirty map[interface{}]*entry
+	// 当从Map中读取entry的时候，如果read中不包含这个entry,会尝试从dirty中读取，这个时候会将misses加一，
+	// 当misses累积到 dirty的长度的时候， 就会将dirty提升为read,避免从dirty中miss太多次。因为操作dirty需要加锁。
+	misses int
+}
+</code></pre>
+<p>sync的Map的数据结构比较简单，只有四个字段，<code>read</code>、<code>mu</code>、<code>dirty</code>、<code>misses</code>。</p>
+<p>它使用了冗余的数据结构<code>read</code>、<code>dirty</code>。<code>dirty</code>中会包含<code>read</code>中为删除的entries，新增加的entries会加入到<code>dirty</code>中。</p>
+<h4 id="2-readonly">2. Readonly</h4>
+<p><code>read</code>的数据结构是</p>
+<pre><code class="language-go">type readOnly struct {
+	m       map[interface{}]*entry
+	amended bool // 如果Map.dirty有些数据不在其中的时候，这个值为true
+}
+</code></pre>
+<p>只读map,对该map元素的访问不需要加锁，但是该map也不会进行元素的增加，元素会被先添加到dirty中然后后续再转移到read只读map中，通过atomic原子操作不需要进行锁操作。</p>
+<p><code>amended</code>指明<code>Map.dirty</code>中有<code>readOnly.m</code>未包含的数据，所以如果从<code>Map.read</code>找不到数据的话，还要进一步到<code>Map.dirty</code>中查找。</p>
+<p>对Map.read的修改是通过原子操作进行的。</p>
+<p>虽然<code>read</code>和<code>dirty</code>有冗余数据，但这些数据是通过指针指向同一个数据，所以尽管Map的value会很大，但是冗余的空间占用还是有限的。</p>
+<h4 id="3-entry">3. entry</h4>
+<p><code>readOnly.m</code>和<code>Map.dirty</code>存储的值类型是<code>*entry</code>,它包含一个指针p, 指向用户存储的value值。</p>
+<pre><code class="language-go">type entry struct {
+	p unsafe.Pointer // *interface{}
+}
+</code></pre>
+<p>entry是sync.Map中值得指针，如果当p指针指向expunged这个指针的时候，则表明该元素被删除，但不会立即从map中删除，如果在未删除之前又重新赋值则会重用该元素。</p>
+<p>p的值</p>
+<ul>
+<li>nil: entry已被删除了，并且m.dirty为nil</li>
+<li>expunged: entry已被删除了，并且m.dirty不为nil，而且这个entry不存在于m.dirty中</li>
+<li>其它： entry是一个正常的值</li>
+</ul>
+<h4 id="4-read-map与dirty-map的关系">4. read map与dirty map的关系</h4>
+<figure data-type="image" tabindex="6"><img src="https://picb.zhimg.com/80/v2-ab3818df87945f7b9dab93911bc02359_720w.jpg" alt="img" loading="lazy"></figure>
+<p>从上图中可以看出，read map 和 dirty map 中含有相同的一部分 <code>entry</code>，我们称作是 normal entries，是双方共享的。状态就是上面所说的p的值<code>nil</code>和<code>unexpunged</code>。</p>
+<p>但是 read map 中含有一部分 <code>entry</code> 是不属于 dirty map 的，而这部分 <code>entry</code> 就是状态为 <code>expunged</code> 状态的 <code>entry</code>。而 dirty map 中有一部分 <code>entry</code> 也是不属于 read map 的，而这部分其实是来自 <code>Store</code> 操作形成的（也就是新增的 <code>entry</code>），换句话说就是新增的 <code>entry</code> 是出现在 dirty map 中的。这句话其实在文中已经是重复了好几次了，还是要请大家记住这一点，只要是添加的，就一定是添加到dirty map中。</p>
+<p>现在可以了解read map 和 dirty map 的是什么了，那么还得理解一个重要的问题是： read map 和 dirty map 是用来干什么的，以及为什么这么设计？</p>
+<p>第一个问题比较好回答，read map 是用来进行 lock free 操作的（其实可以读写，但是不能做删除操作，因为一旦做了删除操作，就不是线程安全的了，也就无法 lock free），而 dirty map 是用来在无法进行 lock free 操作的情况下，需要 lock 来做一些更新工作的对象。下面我们重点看看<code>Load</code>、<code>Store</code>、<code>Delete</code>、<code>Range</code>这四个方法，其它辅助方法可以参考这四个方法来理解。</p>
+<h4 id="5-load">5. Load</h4>
+<figure data-type="image" tabindex="7"><img src="https://img-blog.csdn.net/20171216090402285?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvamlhbmt1bmtpbmc=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast" alt="这里写图片描述" loading="lazy"></figure>
+<p>加载方法，也就是提供一个键<code>key</code>,查找对应的值<code>value</code>,如果不存在，通过<code>ok</code>反映：</p>
+<pre><code class="language-go">func (m *Map) Load(key interface{}) (value interface{}, ok bool) {
+	// 1.首先从m.read中得到只读readOnly,从它的map中查找，不需要加锁
+	read, _ := m.read.Load().(readOnly)
+	e, ok := read.m[key]
+	// 2. 如果没找到，并且m.dirty中有新数据，需要从m.dirty查找，这个时候需要加锁
+	if !ok &amp;&amp; read.amended {
+		m.mu.Lock()
+		// 双检查，避免加锁的时候m.dirty提升为m.read,这个时候m.read可能被替换了。
+		read, _ = m.read.Load().(readOnly)
+		e, ok = read.m[key]
+		// 如果m.read中还是不存在，并且m.dirty中有新数据
+		if !ok &amp;&amp; read.amended {
+			// 从m.dirty查找
+			e, ok = m.dirty[key]
+			// 不管m.dirty中存不存在，都将misses计数加一
+			// missLocked()中满足条件后就会提升m.dirty
+			m.missLocked()
+		}
+		m.mu.Unlock()
+	}
+	if !ok {
+		return nil, false
+	}
+	return e.load()
+}
+</code></pre>
+<p>这里有两个值的关注的地方。一个是首先从<code>m.read</code>中加载，不存在的情况下，并且<code>m.dirty</code>中有新数据，加锁，然后从<code>m.dirty</code>中加载。</p>
+<p>二是这里使用了双检查的处理，因为在下面的两个语句中，这两行语句并不是一个原子操作</p>
+<pre><code class="language-go">if !ok &amp;&amp; read.amended {
+		m.mu.Lock()
+		}
+</code></pre>
+<p>虽然第一句执行的时候条件满足，但是在加锁之前，<code>m.dirty</code>可能被提升为<code>m.read</code>,所以加锁后还得再检查<code>m.read</code>，后续的方法中都使用了这个方法。</p>
+<p>双检查的技术Java程序员非常熟悉了，单例模式的实现之一就是利用双检查的技术。</p>
+<p>可以看到，如果我们查询的键值正好存在于<code>m.read</code>中，无须加锁，直接返回，理论上性能优异。即使不存在于<code>m.read</code>中，经过<code>miss</code>几次之后，<code>m.dirty</code>会被提升为<code>m.read</code>，又会从<code>m.read</code>中查找。所以对于更新／增加比较少的场景，加载存在的key很多的case,性能基本和无锁的map类似。</p>
+<p>下面看看<code>m.dirty</code>是如何被提升为m.read的。 <code>missLocked</code>方法中可能会将<code>m.dirty</code>提升。</p>
+<h5 id="dirty到read-map的迁移">dirty到read map的迁移</h5>
+<p>Load的源码中有一个函数叫missLocked，这个函数比较重要，是关系dirty到read map迁移操作的，对着源码着重说一说。</p>
+<figure data-type="image" tabindex="8"><img src="https://img2018.cnblogs.com/blog/1506724/201912/1506724-20191230011543227-487439535.png" alt="image.png" loading="lazy"></figure>
+<pre><code class="language-go">func (m *Map) missLocked() {
+	m.misses++
+	if m.misses &lt; len(m.dirty) {
+		return
+	}
+	m.read.Store(readOnly{m: m.dirty})
+	m.dirty = nil
+	m.misses = 0
+}
+</code></pre>
+<p>上面的最后三行代码就是提升<code>m.dirty</code>的，很简单的将<code>m.dirty</code>作为<code>readOnly</code>的<code>m</code>字段，原子更新<code>m.read</code>。提升后<code>m.dirty</code>、<code>m.misses</code>重置， 并且<code>m.read.amended</code>为false。这种做法无疑是会提升read map的命中率。</p>
+<p>当持续的从read访问穿透到dirty中后，就会触发一次从dirty到read的迁移，这也意味着如果我们的元素读写比差比较小，其实就会导致频繁的迁移操作，性能其实可能并不如rwmutex等实现。</p>
+<h4 id="6-store">6. store</h4>
+<figure data-type="image" tabindex="9"><img src="https://img-blog.csdn.net/20171215190936827?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvamlhbmt1bmtpbmc=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast" alt="这里写图片描述" loading="lazy"></figure>
+<p>这个方法是更新或者新增一个entry。</p>
+<pre><code class="language-go">func (m *Map) Store(key, value interface{}) {
+	// 如果m.read存在这个键，并且这个entry没有被标记删除，尝试直接存储。
+	// 因为m.dirty也指向这个entry,所以m.dirty也保持最新的entry。
+	read, _ := m.read.Load().(readOnly)
+	if e, ok := read.m[key]; ok &amp;&amp; e.tryStore(&amp;value) {
+		return
+	}
+	// 如果`m.read`不存在或者已经被标记删除
+	m.mu.Lock()
+	read, _ = m.read.Load().(readOnly)
+	if e, ok := read.m[key]; ok {
+		if e.unexpungeLocked() { //标记成未被删除
+			m.dirty[key] = e //m.dirty中不存在这个键，所以加入m.dirty
+		}
+		e.storeLocked(&amp;value) //更新
+	} else if e, ok := m.dirty[key]; ok { // m.dirty存在这个键，更新
+		e.storeLocked(&amp;value)
+	} else { //新键值
+		if !read.amended { //m.dirty中没有新的数据，往m.dirty中增加第一个新键
+			m.dirtyLocked() //从m.read中复制未删除的数据
+			m.read.Store(readOnly{m: read.m, amended: true})
+		}
+		m.dirty[key] = newEntry(value) //将这个entry加入到m.dirty中
+	}
+	m.mu.Unlock()
+}
+// 在刚初始化和将所有元素迁移到read中后，dirty默认都是nil元素，而此时如果有新的元素增加，则需要先将read map中的所有未删除数据先迁移到dirty中
+func (m *Map) dirtyLocked() {
+	if m.dirty != nil {
+		return
+	}
+	read, _ := m.read.Load().(readOnly)
+	m.dirty = make(map[interface{}]*entry, len(read.m))
+	for k, e := range read.m {
+		if !e.tryExpungeLocked() {
+			m.dirty[k] = e
+		}
+	}
+}
+func (e *entry) tryExpungeLocked() (isExpunged bool) {
+	p := atomic.LoadPointer(&amp;e.p)
+	for p == nil {
+		// 将已经删除标记为nil的数据标记为expunged
+		if atomic.CompareAndSwapPointer(&amp;e.p, nil, expunged) {
+			return true
+		}
+		p = atomic.LoadPointer(&amp;e.p)
+	}
+	return p == expunged
+}
+</code></pre>
+<p>你可以看到，以上操作都是先从操作<code>m.read</code>开始的，不满足条件再加锁，然后操作<code>m.dirty</code>。</p>
+<p><code>Store</code>可能会在某种情况下(初始化或者m.dirty刚被提升后)从<code>m.read</code>中复制数据，如果这个时候<code>m.read</code>中数据量非常大，可能会影响性能。</p>
+<h5 id="read-map到dirty-map的迁移">read map到dirty map的迁移</h5>
+<p>着重的讲一下源码中的dirtyLocked函数</p>
+<p>在刚初始化和将所有元素迁移到read中后，dirty默认都是nil元素，而此时如果有新的元素增加，则需要先将read map中的所有未删除数据先迁移到dirty中。</p>
+<figure data-type="image" tabindex="10"><img src="https://img2018.cnblogs.com/blog/1506724/201912/1506724-20191230011543035-1097819548.png" alt="image.png" loading="lazy"></figure>
+<pre><code class="language-go">func (m *Map) dirtyLocked() {
+    if m.dirty != nil {
+        return
+    }
+
+    read, _ := m.read.Load().(readOnly)
+    m.dirty = make(map[interface{}]*entry, len(read.m))
+    for k, e := range read.m {
+        if !e.tryExpungeLocked() {
+            m.dirty[k] = e
+        }
+    }
+}
+</code></pre>
+<h4 id="7-delete">7. Delete</h4>
+<figure data-type="image" tabindex="11"><img src="https://img-blog.csdn.net/20171216092834586?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvamlhbmt1bmtpbmc=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast" alt="这里写图片描述" loading="lazy"></figure>
+<p>删除一个键值。</p>
+<pre><code class="language-go">func (m *Map) Delete(key interface{}) {
+	read, _ := m.read.Load().(readOnly)
+	e, ok := read.m[key]
+	if !ok &amp;&amp; read.amended {
+		m.mu.Lock()
+		read, _ = m.read.Load().(readOnly)
+		e, ok = read.m[key]
+		if !ok &amp;&amp; read.amended {
+			delete(m.dirty, key)
+		}
+		m.mu.Unlock()
+	}
+	if ok {
+		e.delete()
+	}
+}
+</code></pre>
+<p>同样，删除操作还是从<code>m.read</code>中开始， 如果这个entry不存在于<code>m.read</code>中，并且<code>m.dirty</code>中有新数据，则加锁尝试从<code>m.dirty</code>中删除。</p>
+<p>注意，还是要双检查的。 从<code>m.dirty</code>中直接删除即可，就当它没存在过，但是如果是从<code>m.read</code>中删除，并不会直接删除，而是打标记：</p>
+<pre><code class="language-go">func (e *entry) delete() (hadValue bool) {
+	for {
+		p := atomic.LoadPointer(&amp;e.p)
+		// 已标记为删除
+		if p == nil || p == expunged {
+			return false
+		}
+		// 原子操作，e.p标记为nil
+		if atomic.CompareAndSwapPointer(&amp;e.p, p, nil) {
+			return true
+		}
+	}
+}
+</code></pre>
+<p>这里有一个比较有意思的地方，原子操作e.p标记为nil而不是expunged，其中的原因是啥，我也仔细的想了一想，在开篇的时候我给了一张read map和dirty map关系的图，unexpunged的entry是readmap有而dirtymap中没有的，而这个值执行CAS条件表明<code>entry</code> 既不是 <code>nil</code> 也不是 <code>expunged</code> 的，那么就是说这个 <code>entry</code> 必定是存在于 dirty map 中的，也就不能置成 <code>expunged</code>。</p>
+<h4 id="8-range">8. Range</h4>
+<p>因为<code>for ... range map</code>是内建的语言特性，所以没有办法使用<code>for range</code>遍历<code>sync.Map</code>, 但是可以使用它的<code>Range</code>方法，通过回调的方式遍历。</p>
+<pre><code class="language-go">func (m *Map) Range(f func(key, value interface{}) bool) {
+	read, _ := m.read.Load().(readOnly)
+	// 如果m.dirty中有新数据，则提升m.dirty,然后在遍历
+	if read.amended {
+		//提升m.dirty
+		m.mu.Lock()
+		read, _ = m.read.Load().(readOnly) //双检查
+		if read.amended {
+			read = readOnly{m: m.dirty}
+			m.read.Store(read)
+			m.dirty = nil
+			m.misses = 0
+		}
+		m.mu.Unlock()
+	}
+	// 遍历, for range是安全的
+	for k, e := range read.m {
+		v, ok := e.load()
+		if !ok {
+			continue
+		}
+		if !f(k, v) {
+			break
+		}
+	}
+}
+</code></pre>
+<h4 id="9-load-store-delete">9. Load Store Delete</h4>
+<p><code>Load Store Delete</code> 的操作都基本描述完了，可以用下面的一张图用来总结一下：</p>
+<figure data-type="image" tabindex="12"><img src="https://pic2.zhimg.com/80/v2-264fe04200047fc89ccffa81d0c12620_720w.jpg" alt="img" loading="lazy"></figure>
+<h2 id="6-read-map-和-dirty-map-的设计分析">6. read map 和 dirty map 的设计分析</h2>
+<p>最核心和最基本的原因就是： 通过分离出 readonly 的部分，从而可以形成 lock free 的优化。</p>
+<p>从上面的流程可以发现，对于 read map 中 <code>entry</code> 的操作是不需要 lock 的，但是为什么就能够保证这样的无锁操作是 thread-safe 的呢？</p>
+<p>这是因为 read map 是 read-only 的，不过这里的 read-only 是指 entry 不会被删除，其实值是可以被更新，而值的更新是可以通过 CAS 操作保证 thread-safe 的，所以读者可以发现，即使在持有 lock 的时候，仍然需要 CAS 来对 read map 中的 <code>entry</code> 进行操作，此外对于 read map 本身的更新也是 通过 atomic 来操作的（在 <code>missLocked</code> 方法中）。</p>
+<h2 id="7-syncmap-的缺陷">7 syncmap 的缺陷</h2>
+<p>其实通过上面的分析，了解了整个流程的话，读者会很容易理解这个 syncmap 的缺点：当需要不停地新增和删除的时候，会导致 dirty map 不停地更新，甚至在 miss 过多之后，导致 dirty 成为 nil，并进入重建的过程</p>
+<h2 id="8-关于-lock-free-的启发">8. 关于 lock free 的启发</h2>
+<p>lock free 会给并发的性能带了较高的提升，目前通过 syncmap 的代码分析，我们也对 lock free 有一些了解，下面会记录一下笔者从 syncmap 中得到的对 lock free 的一些理解。</p>
+<h2 id="9-benchmark测试用数据说话">9. BenchMark测试，用数据说话</h2>
+<h3 id="1-map无锁并发读与map有锁并发读的性能差异">1. map无锁并发读与map有锁并发读的性能差异</h3>
+<pre><code class="language-go">package lock_test
+
+import (
+	&quot;fmt&quot;
+	&quot;sync&quot;
+	&quot;testing&quot;
+)
+
+var cache map[string]string
+
+const NUM_OF_READER int = 40
+const READ_TIMES = 100000
+
+func init() {
+	cache = make(map[string]string)
+
+	cache[&quot;a&quot;] = &quot;aa&quot;
+	cache[&quot;b&quot;] = &quot;bb&quot;
+}
+
+func lockFreeAccess() {
+
+	var wg sync.WaitGroup
+	wg.Add(NUM_OF_READER)
+	for i := 0; i &lt; NUM_OF_READER; i++ {
+		go func() {
+			for j := 0; j &lt; READ_TIMES; j++ {
+				_, err := cache[&quot;a&quot;]
+				if !err {
+					fmt.Println(&quot;Nothing&quot;)
+				}
+			}
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+}
+
+func lockAccess() {
+
+	var wg sync.WaitGroup
+	wg.Add(NUM_OF_READER)
+	m := new(sync.RWMutex)
+	for i := 0; i &lt; NUM_OF_READER; i++ {
+		go func() {
+			for j := 0; j &lt; READ_TIMES; j++ {
+
+				m.RLock()
+				_, err := cache[&quot;a&quot;]
+				if !err {
+					fmt.Println(&quot;Nothing&quot;)
+				}
+				m.RUnlock()
+			}
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+}
+
+func BenchmarkLockFree(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i &lt; b.N; i++ {
+		lockFreeAccess()
+	}
+}
+
+func BenchmarkLock(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i &lt; b.N; i++ {
+		lockAccess()
+	}
+}
+
+</code></pre>
+<p>上面的代码比较简单，BenchMark测试的就是俩函数，一个是lockFreeAccess，一个是lockAccess，这两个函数的区别就是lockFreeAccess是无锁的，lockAccess还是带锁的。</p>
+<pre><code class="language-shell">go test -bench=.
+goos: darwin
+goarch: amd64
+pkg: go_learning/code/ch48/lock
+BenchmarkLockFree-4   	     100	  12014281 ns/op
+BenchmarkLock-4       	       6	 199626870 ns/op
+PASS
+ok  	go_learning/code/ch48/lock	3.245s
+</code></pre>
+<p>执行go test -bench=. 很明显的看出BenchmarkLockFree和BenchmarkLock，BenchmarkLockFree-4每次执行耗时是12014281纳秒，而BenchmarkLock-4 是199626870纳秒，两者明显就是相差了一个量级。</p>
+<h4 id="cpu差异">cpu差异</h4>
+<pre><code class="language-shell">go test -bench=. -cpuprofile=cpu.prof
+go tool pprof cpu.prof
+Type: cpu
+Time: Aug 10, 2020 at 2:27am (GMT)
+Duration: 2.76s, Total samples = 6.62s (240.26%)
+Entering interactive mode (type &quot;help&quot; for commands, &quot;o&quot; for options)
+(pprof) top
+Showing nodes accounting for 6.49s, 98.04% of 6.62s total
+Dropped 8 nodes (cum &lt;= 0.03s)
+Showing top 10 nodes out of 34
+      flat  flat%   sum%        cum   cum%
+     1.57s 23.72% 23.72%      1.58s 23.87%  sync.(*RWMutex).RLock (inline)
+     1.46s 22.05% 45.77%      1.47s 22.21%  sync.(*RWMutex).RUnlock (inline)
+     1.40s 21.15% 66.92%      1.82s 27.49%  runtime.mapaccess2_faststr
+     0.80s 12.08% 79.00%      0.80s 12.08%  runtime.findnull
+     0.51s  7.70% 86.71%      2.07s 31.27%  go_learning/code/ch48/lock_test.lockFreeAccess.func1
+     0.28s  4.23% 90.94%      0.28s  4.23%  runtime.pthread_cond_wait
+     0.16s  2.42% 93.35%      0.16s  2.42%  runtime.newstack
+     0.15s  2.27% 95.62%      0.15s  2.27%  runtime.add (partial-inline)
+     0.11s  1.66% 97.28%      0.13s  1.96%  runtime.(*bmap).keys (inline)
+     0.05s  0.76% 98.04%      3.40s 51.36%  go_learning/code/ch48/lock_test.lockAccess.func1
+</code></pre>
+<p>很明显 lockAccess的cpu耗时3.40s,而lockFreeAccess的cpu耗时是2.07s。</p>
+<h3 id="2-对比concurrenthashmap">2. 对比ConcurrentHashMap</h3>
+<p>如果熟悉Java的同学，可以对比一下java的<code>ConcurrentHashMap</code>的实现，在map的数据非常大的情况下，一把锁会导致大并发的客户端共争一把锁，Java的解决方案是<code>shard</code>, 内部使用多个锁，每个区间共享一把锁，这样减少了数据共享一把锁带来的性能影响。go的官方虽然没有提供类似Java的<code>ConcurrentHashMap</code>的实现，但是我也还是试着去尝试了下。</p>
+<h4 id="1-concurrent_map_benchmark_adaptergo">1. concurrent_map_benchmark_adapter.go</h4>
+<pre><code class="language-go">package maps
+
+import &quot;github.com/easierway/concurrent_map&quot;
+
+type ConcurrentMapBenchmarkAdapter struct {
+	cm *concurrent_map.ConcurrentMap
+}
+
+func (m *ConcurrentMapBenchmarkAdapter) Set(key interface{}, value interface{}) {
+	m.cm.Set(concurrent_map.StrKey(key.(string)), value)
+}
+
+func (m *ConcurrentMapBenchmarkAdapter) Get(key interface{}) (interface{}, bool) {
+	return m.cm.Get(concurrent_map.StrKey(key.(string)))
+}
+
+func (m *ConcurrentMapBenchmarkAdapter) Del(key interface{}) {
+	m.cm.Del(concurrent_map.StrKey(key.(string)))
+}
+
+func CreateConcurrentMapBenchmarkAdapter(numOfPartitions int) *ConcurrentMapBenchmarkAdapter {
+	conMap := concurrent_map.CreateConcurrentMap(numOfPartitions)
+	return &amp;ConcurrentMapBenchmarkAdapter{conMap}
+}
+
+</code></pre>
+<h4 id="2-map_benchmark_testgo">2. map_benchmark_test.go</h4>
+<pre><code class="language-go">package maps
+
+import (
+	&quot;strconv&quot;
+	&quot;sync&quot;
+	&quot;testing&quot;
+)
+
+const (
+	NumOfReader = 100
+	NumOfWriter = 10
+)
+
+type Map interface {
+	Set(key interface{}, val interface{})
+	Get(key interface{}) (interface{}, bool)
+	Del(key interface{})
+}
+
+func benchmarkMap(b *testing.B, hm Map) {
+	for i := 0; i &lt; b.N; i++ {
+		var wg sync.WaitGroup
+		for i := 0; i &lt; NumOfWriter; i++ {
+			wg.Add(1)
+			go func() {
+				for i := 0; i &lt; 100; i++ {
+					hm.Set(strconv.Itoa(i), i*i)
+					hm.Set(strconv.Itoa(i), i*i)
+					hm.Del(strconv.Itoa(i))
+				}
+				wg.Done()
+			}()
+		}
+		for i := 0; i &lt; NumOfReader; i++ {
+			wg.Add(1)
+			go func() {
+				for i := 0; i &lt; 100; i++ {
+					hm.Get(strconv.Itoa(i))
+				}
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+	}
+}
+
+func BenchmarkSyncmap(b *testing.B) {
+	b.Run(&quot;map with RWLock&quot;, func(b *testing.B) {
+		hm := CreateRWLockMap()
+		benchmarkMap(b, hm)
+	})
+
+	b.Run(&quot;sync.map&quot;, func(b *testing.B) {
+		hm := CreateSyncMapBenchmarkAdapter()
+		benchmarkMap(b, hm)
+	})
+
+	b.Run(&quot;concurrent map&quot;, func(b *testing.B) {
+		superman := CreateConcurrentMapBenchmarkAdapter(199)
+		benchmarkMap(b, superman)
+	})
+}
+
+</code></pre>
+<h4 id="3-rw_mapgo">3. rw_map.go</h4>
+<pre><code class="language-go">package maps
+
+import &quot;sync&quot;
+
+type RWLockMap struct {
+	m    map[interface{}]interface{}
+	lock sync.RWMutex
+}
+
+func (m *RWLockMap) Get(key interface{}) (interface{}, bool) {
+	m.lock.RLock()
+	v, ok := m.m[key]
+	m.lock.RUnlock()
+	return v, ok
+}
+
+func (m *RWLockMap) Set(key interface{}, value interface{}) {
+	m.lock.Lock()
+	m.m[key] = value
+	m.lock.Unlock()
+}
+
+func (m *RWLockMap) Del(key interface{}) {
+	m.lock.Lock()
+	delete(m.m, key)
+	m.lock.Unlock()
+}
+
+func CreateRWLockMap() *RWLockMap {
+	m := make(map[interface{}]interface{}, 0)
+	return &amp;RWLockMap{m: m}
+}
+
+</code></pre>
+<h4 id="4-sync_map_benchmark_adaptergo">4. sync_map_benchmark_adapter.go</h4>
+<pre><code class="language-go">package maps
+
+import &quot;sync&quot;
+
+func CreateSyncMapBenchmarkAdapter() *SyncMapBenchmarkAdapter {
+	return &amp;SyncMapBenchmarkAdapter{}
+}
+
+type SyncMapBenchmarkAdapter struct {
+	m sync.Map
+}
+
+func (m *SyncMapBenchmarkAdapter) Set(key interface{}, val interface{}) {
+	m.m.Store(key, val)
+}
+
+func (m *SyncMapBenchmarkAdapter) Get(key interface{}) (interface{}, bool) {
+	return m.m.Load(key)
+}
+
+func (m *SyncMapBenchmarkAdapter) Del(key interface{}) {
+	m.m.Delete(key)
+}
+
+</code></pre>
+<h5 id="1-读写量级一致相差不多">1 . 读写量级一致，相差不多</h5>
+<p>benchmarkMap设置的是100次写和100次读</p>
+<pre><code>go test -bench=.
+goos: darwin
+goarch: amd64
+pkg: go_learning/code/ch48/maps
+BenchmarkSyncmap/map_with_RWLock-4         	     398	   2780087 ns/op
+BenchmarkSyncmap/sync.map-4                	     530	   2173851 ns/op
+BenchmarkSyncmap/concurrent_map-4          	     693	   1505866 ns/op
+PASS
+ok  	go_learning/code/ch48/maps	4.709s
+</code></pre>
+<p>从结果上看基于Java的<code>ConcurrentHashMap</code>的性能更优异，其次是go的sync.map最后才是RWLock.</p>
+<h5 id="2-读多写少">2. 读多写少</h5>
+<p>benchmarkMap设置的是10次写和100次读</p>
+<pre><code class="language-shell">go test -bench=.
+goos: darwin
+goarch: amd64
+pkg: go_learning/code/ch48/maps
+BenchmarkSyncmap/map_with_RWLock-4         	     630	   1644799 ns/op
+BenchmarkSyncmap/sync.map-4                	    2103	    588642 ns/op
+BenchmarkSyncmap/concurrent_map-4          	    1088	   1140983 ns/op
+PASS
+ok  	go_learning/code/ch48/maps	6.286s
+</code></pre>
+<p>从结果上看go的sync.map的性能高于其他两个不是一点点，所以对于并发操作读多写少的情况下，sync.map是嘴合适的选择。</p>
+<h5 id="3-读少写多">3. 读少写多</h5>
+<p>benchmarkMap设置的是100次写和10次读</p>
+<pre><code>go test -bench=.
+goos: darwin
+goarch: amd64
+pkg: go_learning/code/ch48/maps
+BenchmarkSyncmap/map_with_RWLock-4         	     788	   1369344 ns/op
+BenchmarkSyncmap/sync.map-4                	     650	   1744666 ns/op
+BenchmarkSyncmap/concurrent_map-4          	    2065	    577972 ns/op
+PASS
+ok  	go_learning/code/ch48/maps	5.288s
+</code></pre>
+<p>从结果上看基于Java的<code>ConcurrentHashMap</code>的性能更优异，其次是RWLock最后才是sync.map.为什么sync.map会这么慢，在上面的分析中都有说明。</p>
+
+            </div>
+            
+            
+              <div class="next-post">
+                <div class="next">下一篇</div>
+                <a href="https://ttlv.github.io/blog/post/ohmyzsh-ji-chu-pei-zhi/">
+                  <h3 class="post-title">
+                    OhMyZsh基础配置
+                  </h3>
+                </a>
+              </div>
+            
+
+            
+              
+                <div id="gitalk-container" data-aos="fade-in"></div>
+              
+
+              
+            
+
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <script src="https://unpkg.com/aos@next/dist/aos.js"></script>
+<script type="application/javascript">
+
+AOS.init();
+
+var app = new Vue({
+  el: '#app',
+  data: {
+    menuVisible: false,
+  },
+})
+
+</script>
+
+
+  <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  <script>
+    hljs.initHighlightingOnLoad()
+  </script>
+
+
+
+
+  
+    <script src="https://unpkg.com/gitalk/dist/gitalk.min.js"></script>
+    <script>
+
+      var gitalk = new Gitalk({
+        clientID: '',
+        clientSecret: '',
+        repo: '',
+        owner: '',
+        admin: [''],
+        id: (location.pathname).substring(0, 49),      // Ensure uniqueness and length less than 50
+        distractionFreeMode: false  // Facebook-like distraction free mode
+      })
+
+      gitalk.render('gitalk-container')
+
+    </script>
+  
+
+  
+
+
+
+
+  </body>
+</html>
