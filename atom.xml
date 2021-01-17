@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://ttlv.github.io/blog</id>
     <title>Gopher From Ghetto</title>
-    <updated>2021-01-17T14:41:12.985Z</updated>
+    <updated>2021-01-17T14:42:14.794Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://ttlv.github.io/blog"/>
     <link rel="self" href="https://ttlv.github.io/blog/atom.xml"/>
@@ -10,6 +10,43 @@
     <logo>https://ttlv.github.io/blog/images/avatar.png</logo>
     <icon>https://ttlv.github.io/blog/favicon.ico</icon>
     <rights>All rights reserved 2021, Gopher From Ghetto</rights>
+    <entry>
+        <title type="html"><![CDATA[树莓派网络配置基础]]></title>
+        <id>https://ttlv.github.io/blog/post/shu-mei-pai-wang-luo-pei-zhi-ji-chu/</id>
+        <link href="https://ttlv.github.io/blog/post/shu-mei-pai-wang-luo-pei-zhi-ji-chu/">
+        </link>
+        <updated>2021-01-17T14:41:39.000Z</updated>
+        <content type="html"><![CDATA[<h2 id="1-唤醒ssh服务">1. 唤醒SSH服务</h2>
+<p>此方式默认已经将系统烧录到树莓派中，2016-11 官方发布的 Raspbian 系统镜像，系统默认禁用了 SSH 服务。要重新开启SSH服务也很方便，把SD卡拔下来，进入到根目录，新建一个名为<code>ssh</code>的文件。</p>
+<h2 id="2-接入wifi">2. 接入WIFI</h2>
+<h3 id="1-手动创建wpa_supplicantconf">1. 手动创建wpa_supplicant.conf</h3>
+<pre><code class="language-shell">vim wpa_supplicant.conf
+# /boot/wpa_supplicant.conf
+country=US
+// 这里需要注意一点，country如果改成是CN无法连入5G的WIFI。
+ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
+update_config=1
+
+network={
+    ssid=&quot;xxx&quot; // 配置WiFi名
+    psk=&quot;xxxx&quot; // WiFi的密码
+    priority=1
+}
+</code></pre>
+<p>拔下SD卡，把vim wpa_supplicant.conf文件拖到根目录下面。</p>
+<h3 id="2-命令行搜索wifi">2. 命令行搜索WiFi</h3>
+<pre><code class="language-shell">iwlist scan
+</code></pre>
+<p>在终端执行该指令可以看到所有被树莓派搜索到的WiFi。</p>
+<pre><code class="language-shell">vim /etc/wpa_supplicant/wpa_supplicant.conf
+</code></pre>
+<p>该操作和上面在手动创建wpa_supplicant.conf的操作一样，也是修改ssid和psk。</p>
+<pre><code class="language-shell">wpa_cli -i wlan0 reconfigure
+OK
+</code></pre>
+<p>修改完之后执行该指令，当出现OK的字样说明配置修改完成。ping一下百度看看，ping通了说明WiFi配置完成。</p>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[树莓派系统配置基础]]></title>
         <id>https://ttlv.github.io/blog/post/shu-mei-pai-xi-tong-pei-zhi-ji-chu/</id>

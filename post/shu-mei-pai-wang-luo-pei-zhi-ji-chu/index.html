@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" >
 
-<title>树莓派系统烧录 | Gopher From Ghetto</title>
+<title>树莓派网络配置基础 | Gopher From Ghetto</title>
 
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 
@@ -24,15 +24,9 @@
 
 
 
-    <meta name="description" content="准备工作
-1 硬件要求
-1. 树莓派板子一块
-不管板子是3b,3b+还是4b，什么的，whatever，只要是树莓派的主板就可以了。
-2. 读卡器
-3. sd卡
-容量不需要太大，16G足以。
-4. 电源线
-随便找一个给手机充电的插头就行，然..." />
+    <meta name="description" content="1. 唤醒SSH服务
+此方式默认已经将系统烧录到树莓派中，2016-11 官方发布的 Raspbian 系统镜像，系统默认禁用了 SSH 服务。要重新开启SSH服务也很方便，把SD卡拔下来，进入到根目录，新建一个名为ssh的文件。
+2. 接..." />
     <meta name="keywords" content="树莓派" />
   </head>
   <body>
@@ -108,53 +102,42 @@
       <div class="main-container">
         <div class="content-container" data-aos="fade-up">
           <div class="post-detail">
-            <h2 class="post-title">树莓派系统烧录</h2>
+            <h2 class="post-title">树莓派网络配置基础</h2>
             <div class="post-date">2021-01-17</div>
             
               <div class="feature-container" style="background-image: url('https://images-1253546493.cos.ap-shanghai.myqcloud.com/raspberry.jpg')">
               </div>
             
             <div class="post-content" v-pre>
-              <h1 id="准备工作">准备工作</h1>
-<h2 id="1-硬件要求">1 硬件要求</h2>
-<h3 id="1-树莓派板子一块">1. 树莓派板子一块</h3>
-<p>不管板子是3b,3b+还是4b，什么的，whatever，只要是树莓派的主板就可以了。</p>
-<h3 id="2-读卡器">2. 读卡器</h3>
-<h3 id="3-sd卡">3. sd卡</h3>
-<p>容量不需要太大，16G足以。</p>
-<h3 id="4-电源线">4. 电源线</h3>
-<p>随便找一个给手机充电的插头就行，然后要一根线，4以下的都是用安卓的口子，4开始就是typeC了。</p>
-<h3 id="5-显示器和键盘">5. 显示器和键盘</h3>
-<p>当然这两个有最好，没有也没有关系，我们可以通过ssh连入树莓派。</p>
-<h2 id="2-软件需求">2. 软件需求</h2>
-<h3 id="1-树莓派系统镜像">1.  树莓派系统镜像</h3>
-<p>由于树莓派的cpu架构师armfh,所以下的镜像也必须是兼容armfh型号的系统镜像。官方有提供下载镜像地址，这里我贴上链接</p>
-<p><a href="https://www.raspberrypi.org/downloads/">树莓派系统下载链接</a></p>
-<p>初学者就老老实实的下载Raspberry Pi OS,带不带desktop看自己，如果手上的树莓派板子资源宽裕可以整一个desktop的，不然还是整一个Raspberry Pi OS (32-bit) Lite,我就是整这些花里胡哨的绕了一群回来最后还是装了Raspberry Pi OS (32-bit) Lite,还是这个最好用。</p>
-<h3 id="2-内网扫描工具">2.  内网扫描工具</h3>
-<p>MACOSX的同学推荐一款免费的内网扫描工具叫LanSacn,直接去App Store就可以下载。</p>
-<h3 id="3-烧录程序">3.  烧录程序</h3>
-<p>官方有提供烧录系统的软件，在上面那个链接里面就有，不过我不是很喜欢用这个软件。我推荐一下我自己用的。博主是MACOSX的系统，所以这个软件也就针对MACOSX的，软件名字叫balenaEtcher。</p>
-<h1 id="准备烧录">准备烧录</h1>
-<figure data-type="image" tabindex="1"><img src="https://images-1253546493.cos.ap-shanghai.myqcloud.com/balenaEtcher.jpg" alt="image-20200801071225551" loading="lazy"></figure>
-<p>操作很简单就是选择下已经下载好的树莓派系统镜像，然后选择一下要被烧录的sd卡，点击一下flash,等待烧录完成即可。烧录完成之后sd卡不忙着取出来，放两个文件进去。对于没有显示器的同学来说，只有通过ssh的方式连入树莓派，而树莓派默认是关闭ssh的服务的，所以我们现在要唤醒ssh服务，在sd卡中创建一个SSH文件，大小写无所谓，不需要任何内容，一个空文件。要可以使用ssh服务还有一个必须的前提就是让树莓派链上你家的WiFi。让树莓派自动链上WiFi的方法是创建一个文件叫wpa_supplicant.conf</p>
+              <h2 id="1-唤醒ssh服务">1. 唤醒SSH服务</h2>
+<p>此方式默认已经将系统烧录到树莓派中，2016-11 官方发布的 Raspbian 系统镜像，系统默认禁用了 SSH 服务。要重新开启SSH服务也很方便，把SD卡拔下来，进入到根目录，新建一个名为<code>ssh</code>的文件。</p>
+<h2 id="2-接入wifi">2. 接入WIFI</h2>
+<h3 id="1-手动创建wpa_supplicantconf">1. 手动创建wpa_supplicant.conf</h3>
 <pre><code class="language-shell">vim wpa_supplicant.conf
 # /boot/wpa_supplicant.conf
 country=US
+// 这里需要注意一点，country如果改成是CN无法连入5G的WIFI。
 ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
 update_config=1
 
 network={
-    ssid=&quot;xxx&quot; // WiFi的名字
-    psk=&quot;xxx&quot; // WiFi的密码
+    ssid=&quot;xxx&quot; // 配置WiFi名
+    psk=&quot;xxxx&quot; // WiFi的密码
     priority=1
 }
-
 </code></pre>
-<p>把这个文件拖入sd卡中即可。取出sd卡插入树莓派，上电开机。其实这部分内容我在<strong>树莓派网络配置</strong>这一章节也是有提及的，对网络有疑问的同学可以看这里。还有一点是请确保你配置的WiFi是可以接入的，如果树莓派接入不了，ssh是进不去的。</p>
-<p>登入树莓派</p>
-<p>使用外接显示器的同学在树莓派上电后看到了激动人心的时刻，看到了树莓派的系统界面，最后在登前要求输入用户名和密码。默认的用户名和密码是pi和raspberry。这里是区分大小写的，只能是小写的，要注意下。</p>
-<p>没有显示器的同学，如果你用内网扫描工具发现了你的树莓派的ip,那么恭喜你，你可以使用ssh登入树莓派了，登录的步骤是ssh pi@ip,这里的ip就是你用内网扫描工具看到的树莓派的ip,点击enter之后会要求你输入密码，密码就是raspberry，输入密码之后，ok，大功告成。</p>
+<p>拔下SD卡，把vim wpa_supplicant.conf文件拖到根目录下面。</p>
+<h3 id="2-命令行搜索wifi">2. 命令行搜索WiFi</h3>
+<pre><code class="language-shell">iwlist scan
+</code></pre>
+<p>在终端执行该指令可以看到所有被树莓派搜索到的WiFi。</p>
+<pre><code class="language-shell">vim /etc/wpa_supplicant/wpa_supplicant.conf
+</code></pre>
+<p>该操作和上面在手动创建wpa_supplicant.conf的操作一样，也是修改ssid和psk。</p>
+<pre><code class="language-shell">wpa_cli -i wlan0 reconfigure
+OK
+</code></pre>
+<p>修改完之后执行该指令，当出现OK的字样说明配置修改完成。ping一下百度看看，ping通了说明WiFi配置完成。</p>
 
             </div>
             
@@ -169,9 +152,9 @@ network={
             
               <div class="next-post">
                 <div class="next">下一篇</div>
-                <a href="https://ttlv.github.io/blog/post/rust-suo-you-quan/">
+                <a href="https://ttlv.github.io/blog/post/shu-mei-pai-xi-tong-pei-zhi-ji-chu/">
                   <h3 class="post-title">
-                    Rust所有权
+                    树莓派系统配置基础
                   </h3>
                 </a>
               </div>
