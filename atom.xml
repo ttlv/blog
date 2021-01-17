@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://ttlv.github.io/blog</id>
     <title>Gopher From Ghetto</title>
-    <updated>2021-01-17T14:42:14.794Z</updated>
+    <updated>2021-01-17T14:43:44.827Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://ttlv.github.io/blog"/>
     <link rel="self" href="https://ttlv.github.io/blog/atom.xml"/>
@@ -10,6 +10,220 @@
     <logo>https://ttlv.github.io/blog/images/avatar.png</logo>
     <icon>https://ttlv.github.io/blog/favicon.ico</icon>
     <rights>All rights reserved 2021, Gopher From Ghetto</rights>
+    <entry>
+        <title type="html"><![CDATA[OhMyZsh基础配置]]></title>
+        <id>https://ttlv.github.io/blog/post/ohmyzsh-ji-chu-pei-zhi/</id>
+        <link href="https://ttlv.github.io/blog/post/ohmyzsh-ji-chu-pei-zhi/">
+        </link>
+        <updated>2021-01-17T14:43:22.000Z</updated>
+        <content type="html"><![CDATA[<h2 id="1-安装zsh">1. 安装zsh</h2>
+<p>shell的终端是遭不住，还是决定换成oh-my-zsh。</p>
+<h3 id="1-查看当前shell">1. 查看当前shell</h3>
+<pre><code class="language-shell">echo $SHELL
+/bin/bash
+</code></pre>
+<h3 id="2-安装zsh">2. 安装zsh</h3>
+<pre><code class="language-shell">apt install -y zsh // ubuntu或者是树莓派
+yum install -y zsh // centos
+brew install zsh // MACOSX,homebrew没有安装的去百度下咋装，这里就不展开说了 - -
+</code></pre>
+<h3 id="3-把zsh设置成默认shell">3. 把zsh设置成默认shell</h3>
+<pre><code class="language-shell">chsh -s /bin/zsh
+</code></pre>
+<h3 id="4-安装git">4. 安装git</h3>
+<pre><code class="language-shell">apt install -y git // ubuntu或者是树莓派
+yum install -y git // centos
+brew install git // MACOSX
+</code></pre>
+<h3 id="5-安装oh-my-zsh">5. 安装oh-my-zsh</h3>
+<h4 id="1-自动安装">1. 自动安装</h4>
+<pre><code class="language-shell">sh -c &quot;$(curl -fsSL https://raw.githubusercontent.com/robbyrussell/oh-my-zsh/master/tools/install.sh)&quot;
+</code></pre>
+<h4 id="2-手动安装">2. 手动安装</h4>
+<h5 id="1-下载源码">1. 下载源码</h5>
+<pre><code class="language-shell">git clone https://github.com/robbyrussell/oh-my-zsh.git ~/.oh-my-zsh
+</code></pre>
+<h5 id="2-复制配置">2. 复制配置</h5>
+<pre><code class="language-shell">cp ~/.oh-my-zsh/templates/zshrc.zsh-template ~/.zshrc
+</code></pre>
+<h3 id="6-生效配置">6. 生效配置</h3>
+<pre><code class="language-shell">source .zshrc
+</code></pre>
+<h2 id="2-zshrc配置">2.  .zshrc配置</h2>
+<pre><code class="language-shell"># If you come from bash you might have to change your $PATH.
+# export PATH=$HOME/bin:/usr/local/bin:$PATH
+
+# Path to your oh-my-zsh installation.
+export ZSH=$HOME/.oh-my-zsh
+
+# Set name of the theme to load --- if set to &quot;random&quot;, it will
+# load a random theme each time oh-my-zsh is loaded, in which case,
+# to know which specific one was loaded, run: echo $RANDOM_THEME
+# See https://github.com/ohmyzsh/ohmyzsh/wiki/Themes
+ZSH_THEME=&quot;af-magic&quot;
+
+# Set list of themes to pick from when loading at random
+# Setting this variable when ZSH_THEME=random will cause zsh to load
+# a theme from this variable instead of looking in $ZSH/themes/
+# If set to an empty array, this variable will have no effect.
+# ZSH_THEME_RANDOM_CANDIDATES=( &quot;robbyrussell&quot; &quot;agnoster&quot; )
+
+# Uncomment the following line to use case-sensitive completion.
+# CASE_SENSITIVE=&quot;true&quot;
+
+# Uncomment the following line to use hyphen-insensitive completion.
+# Case-sensitive completion must be off. _ and - will be interchangeable.
+# HYPHEN_INSENSITIVE=&quot;true&quot;
+
+# Uncomment the following line to disable bi-weekly auto-update checks.
+# DISABLE_AUTO_UPDATE=&quot;true&quot;
+
+# Uncomment the following line to automatically update without prompting.
+# DISABLE_UPDATE_PROMPT=&quot;true&quot;
+
+# Uncomment the following line to change how often to auto-update (in days).
+# export UPDATE_ZSH_DAYS=13
+
+# Uncomment the following line if pasting URLs and other text is messed up.
+# DISABLE_MAGIC_FUNCTIONS=&quot;true&quot;
+
+# Uncomment the following line to disable colors in ls.
+# DISABLE_LS_COLORS=&quot;true&quot;
+
+# Uncomment the following line to disable auto-setting terminal title.
+# DISABLE_AUTO_TITLE=&quot;true&quot;
+
+# Uncomment the following line to enable command auto-correction.
+# ENABLE_CORRECTION=&quot;true&quot;
+
+# Uncomment the following line to display red dots whilst waiting for completion.
+# COMPLETION_WAITING_DOTS=&quot;true&quot;
+
+# Uncomment the following line if you want to disable marking untracked files
+# under VCS as dirty. This makes repository status check for large repositories
+# much, much faster.
+# DISABLE_UNTRACKED_FILES_DIRTY=&quot;true&quot;
+
+# Uncomment the following line if you want to change the command execution time
+# stamp shown in the history command output.
+# You can set one of the optional three formats:
+# &quot;mm/dd/yyyy&quot;|&quot;dd.mm.yyyy&quot;|&quot;yyyy-mm-dd&quot;
+# or set a custom format using the strftime function format specifications,
+# see 'man strftime' for details.
+# HIST_STAMPS=&quot;mm/dd/yyyy&quot;
+
+# Would you like to use another custom folder than $ZSH/custom?
+# ZSH_CUSTOM=/path/to/new-custom-folder
+
+# Which plugins would you like to load?
+# Standard plugins can be found in $ZSH/plugins/
+# Custom plugins may be added to $ZSH_CUSTOM/plugins/
+# Example format: plugins=(rails git textmate ruby lighthouse)
+# Add wisely, as too many plugins slow down shell startup.
+plugins=(zsh-autosuggestions zsh-syntax-highlighting git)
+
+source $ZSH/oh-my-zsh.sh
+
+# User configuration
+
+# export MANPATH=&quot;/usr/local/man:$MANPATH&quot;
+
+# You may need to manually set your language environment
+# export LANG=en_US.UTF-8
+
+# Preferred editor for local and remote sessions
+# if [[ -n $SSH_CONNECTION ]]; then
+#   export EDITOR='vim'
+# else
+#   export EDITOR='mvim'
+# fi
+
+# Compilation flags
+# export ARCHFLAGS=&quot;-arch x86_64&quot;
+
+# Set personal aliases, overriding those provided by oh-my-zsh libs,
+# plugins, and themes. Aliases can be placed here, though oh-my-zsh
+# users are encouraged to define aliases within the ZSH_CUSTOM folder.
+# For a full list of active aliases, run `alias`.
+#
+# Example aliases
+# alias zshconfig=&quot;mate ~/.zshrc&quot;
+# alias ohmyzsh=&quot;mate ~/.oh-my-zsh&quot;
+ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE=&quot;fg=#ff00ff,bg=cyan,bold,underline&quot;
+
+#git
+alias gadd='git add'
+alias gco='git checkout'
+alias gm='git merge'
+alias ts='tig status'
+alias gb='git branch'
+alias gpull='git pull --rebase'
+alias gup='git pull --rebase'
+alias gpush='git push origin master'
+alias glo='git pull origin'
+alias gso='git push origin'
+alias grsh='git reset --soft HEAD\^'
+alias gcm='git commit -m'
+alias gs='git stash'
+alias gsp='git stash pop'
+alias gsas='git stash apply stash@'
+alias gp='git push'
+alias t='tig'
+alias gsc='git stash clear'
+alias mp='make push'
+
+# go command
+alias gtr='go test --run'
+alias gt='go test'
+alias gr='go run'
+alias gg='go get -v -d -t'
+
+#kubectl
+alias k='kubectl'
+alias kdp='k delete po'
+alias kgp='k get po'
+alias kdpa='k delete po --all'
+alias kdesp='k describe po'
+alias kgn='k get no'
+alias klf='k logs -f'
+alias ke='k exec -it'
+alias kgns='k get ns'
+alias kgpnd='k get po -n default'
+alias kgpn='k get po -n'
+alias kdp='k describe pod'
+# docker
+alias d='docker'
+alias dpa='d ps -a'
+alias di='d images'
+alias dr='d rm'
+alias dri='d rmi'
+alias dlf='d logs -f'
+alias de='d exec -it'
+alias ds='d stop'
+alias drm='d rm'
+alias drmi='docker rmi'
+</code></pre>
+<p>这一份是我自己现在在使用的.zshrc配置,你们也可以拿去做参考,我手动安装了两个插件，用于补全的，比较好用，给大家推荐一下。</p>
+<h3 id="1-安装zsh-autosuggestions">1. 安装zsh-autosuggestions</h3>
+<h4 id="1-下载">1. 下载</h4>
+<pre><code class="language-shell">git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions
+</code></pre>
+<h4 id="2-在zshrc配置">2. 在.zshrc配置</h4>
+<pre><code class="language-shell">plugins=(zsh-autosuggestions)
+</code></pre>
+<h4 id="3-带有颜色">3. 带有颜色</h4>
+<p>在.zshrc中添加</p>
+<pre><code>ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE=&quot;fg=#ff00ff,bg=cyan,bold,underline&quot;
+</code></pre>
+<h3 id="2-安装zsh-syntax-highlighting">2. 安装zsh-syntax-highlighting</h3>
+<pre><code class="language-shell">git clone https://github.com/zsh-users/zsh-syntax-highlighting.git
+echo &quot;source ${(q-)PWD}/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh&quot; &gt;&gt; ${ZDOTDIR:-$HOME}/.zshrc
+</code></pre>
+<h4 id="2-在zshrc配置-2">2. 在.zshrc配置</h4>
+<pre><code class="language-shell">plugins=(zsh-syntax-highlighting)
+</code></pre>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[树莓派网络配置基础]]></title>
         <id>https://ttlv.github.io/blog/post/shu-mei-pai-wang-luo-pei-zhi-ji-chu/</id>
