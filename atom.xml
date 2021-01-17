@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://ttlv.github.io/blog</id>
     <title>Gopher From Ghetto</title>
-    <updated>2021-01-17T14:37:10.975Z</updated>
+    <updated>2021-01-17T14:41:12.985Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://ttlv.github.io/blog"/>
     <link rel="self" href="https://ttlv.github.io/blog/atom.xml"/>
@@ -10,6 +10,75 @@
     <logo>https://ttlv.github.io/blog/images/avatar.png</logo>
     <icon>https://ttlv.github.io/blog/favicon.ico</icon>
     <rights>All rights reserved 2021, Gopher From Ghetto</rights>
+    <entry>
+        <title type="html"><![CDATA[树莓派系统配置基础]]></title>
+        <id>https://ttlv.github.io/blog/post/shu-mei-pai-xi-tong-pei-zhi-ji-chu/</id>
+        <link href="https://ttlv.github.io/blog/post/shu-mei-pai-xi-tong-pei-zhi-ji-chu/">
+        </link>
+        <updated>2021-01-17T14:40:18.000Z</updated>
+        <content type="html"><![CDATA[<h2 id="1-更换国内镜像源">1. 更换国内镜像源</h2>
+<p>由于树莓派系统默认的镜像源在国外，所以在国内更新起来会比较慢，好在国内有很多镜像源加速地址，这里我推荐清华的镜像源。</p>
+<p>在操作前还请大家先安装vim,自带的nano真的是不好用。</p>
+<pre><code class="language-shell">apt install vim
+</code></pre>
+<p>切换到root权限</p>
+<pre><code class="language-shell">sudo su
+</code></pre>
+<p>编辑文件 <strong>/etc/apt/sources.list</strong></p>
+<pre><code class="language-shell">vim /etc/apt/sources.list
+</code></pre>
+<p>注释掉默认镜像源，换成清华的镜像源</p>
+<pre><code class="language-shell">deb http://mirrors.tuna.tsinghua.edu.cn/raspbian/raspbian/ buster main contrib non-free rpi
+deb-src http://mirrors.tuna.tsinghua.edu.cn/raspbian/raspbian/ buster main contrib non-free rpi
+</code></pre>
+<p>编辑 <strong>/etc/apt/sources.list.d/raspi.list</strong>,注释掉默认的内容，添加以下内容</p>
+<pre><code class="language-shell">vim /etc/apt/sources.list.d/raspi.list
+deb http://mirror.tuna.tsinghua.edu.cn/raspberrypi/ buster main ui
+deb-src http://mirror.tuna.tsinghua.edu.cn/raspberrypi/ buster main ui
+</code></pre>
+<p>最后在执行update</p>
+<p>在update之前注意下，直接执行apt-get update会把所有本地的包全部升级，甚至包括系统内核，如果一部小学把系统的内核升级了，接下来会遇到一些问题，就是原来可以运行的程序突然就不能运行了，原因就是不兼容更新后的内核版本，所以我们在update之前要阻止更新系统内核</p>
+<pre><code class="language-shell">sudo dpkg --get-selections | grep raspberrypi-kernel
+raspberrypi-kernel				hold
+</code></pre>
+<p>因为我已经执行过了锁定操作，所以这里有一个hold的label。默认情况下是没有的。接下来执行锁定操作</p>
+<pre><code class="language-shell">sudo apt-mark hold raspberrypi-kernel
+</code></pre>
+<pre><code class="language-shell">// 最后再自行更新操作
+sudo apt update
+sudo apt upgrade
+</code></pre>
+<h2 id="2-打开root角色登录修改root角色密码">2. 打开root角色登录，修改root角色密码</h2>
+<p>raspbian默认用户名为pi，密码为raspberry，很多时候操作不是root权限都无法进行，很不方便，所以需要打开root的权限。以后的操作默认用户是已经获取root的权限，即已经执行了sudo su</p>
+<pre><code class="language-shell">passwd root // 执行好之后终端会出现下面的输入框，输入密码即可
+New password:xxxxxx // 输入密码后会要求再输入一次密码，两次密码需保持一致
+Retype new password:xxxxxx
+passwd: password updated successfully // 当出现successfully就表示root账户密码修改成功
+</code></pre>
+<p>启动root账户</p>
+<pre><code class="language-shell">passwd --unlock root
+passwd: password expiry information changed. // 出现这句话说明已经启动root账户
+</code></pre>
+<h2 id="3-运行ssh以root角色登录">3. 运行ssh以root角色登录</h2>
+<h3 id="1设置ssh允许登录">1.设置ssh允许登录</h3>
+<pre><code class="language-shell">sudo sed -i &quot;s/^#PermitRootLogin.*/PermitRootLogin yes/g&quot; /etc/ssh/sshd_config
+</code></pre>
+<h3 id="2重启ssh服务">2.重启ssh服务</h3>
+<pre><code class="language-shell">sudo systemctl restart ssh
+</code></pre>
+<h3 id="3-生成ssh-key">3. 生成ssh key</h3>
+<pre><code class="language-shell">ssh-keygen -t rsa -C &quot;your_email@example.com&quot;
+</code></pre>
+<h3 id="4-copy你的机器的ssh-key到树莓派中">4. copy你的机器的ssh key到树莓派中</h3>
+<pre><code class="language-shell">cd .ssh &amp;&amp; vim authorized_keys
+输入你的机器的ssh key即可
+:wq保存
+</code></pre>
+<p>现在你可以直接使用ssh登录了</p>
+<pre><code class="language-shell">ssh root@your_raspberry_ip
+</code></pre>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[树莓派系统烧录]]></title>
         <id>https://ttlv.github.io/blog/post/shu-mei-pai-xi-tong-shao-lu/</id>
